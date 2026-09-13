@@ -5,6 +5,7 @@ from pathlib import Path
 from pydantic import ValidationError
 
 from writing_feedback.schemas.request import FeedbackRequest
+from writing_feedback.orchestration.state import WorkflowState
 
 
 def main() -> None:
@@ -48,6 +49,11 @@ def main() -> None:
     # 다음 단계: 검증된 요청을 Supervisor에 전달
     print("입력값 검증 완료")
     print(request.model_dump_json(indent=2))
+
+    state = WorkflowState(request=request)
+
+    print("첨삭 실행 상태 생성 완료")
+    print(state.model_dump_json(indent=2))
 
 
 if __name__ == "__main__":
