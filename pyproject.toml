@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "writing-feedback-agent"
+version = "0.1.0"
+description = "국어 비문학 요약문 첨삭을 지원하는 Supervisor 기반 에이전트"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = []
+
+[project.scripts]
+writing-feedback = "writing_feedback.main:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+writing_feedback = [
+    "prompts/*.md",
+    "rubrics/*.yaml",
+]
