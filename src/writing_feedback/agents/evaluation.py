@@ -59,4 +59,5 @@ class EvaluationAgent:
             system_prompt=self.system_prompt,
             user_prompt=json.dumps(payload, ensure_ascii=False),
             response_model=SummaryEvaluation,
+            stage="evaluation",
         )

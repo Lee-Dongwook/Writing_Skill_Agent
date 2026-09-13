@@ -31,7 +31,7 @@ class Settings(BaseSettings):
     )
 
     llm_num_ctx: int = Field(
-        default=8192,
+        default=4096,
         ge=1024,
     )
 
@@ -48,6 +48,12 @@ class Settings(BaseSettings):
     )
 
     llm_think: bool = False
+
+    # 빠른 첨삭은 짧은 교사 검토 초안만 생성하므로, 상세 경로의 출력
+    # 상한(2048) 대신 작은 상한을 사용한다.
+    fast_num_predict: int = Field(default=512, ge=64)
+    fast_input_token_budget: int = Field(default=3000, ge=256)
+    workflow_timeout_seconds: float = Field(default=120.0, gt=0)
 
     @model_validator(mode="after")
     def validate_token_limits(self) -> Self:

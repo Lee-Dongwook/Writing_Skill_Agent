@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import TypeVar
+from typing import Any, TypeVar
 
 from pydantic import BaseModel
 
@@ -36,9 +36,16 @@ class LLMClient(ABC):
         system_prompt: str,
         user_prompt: str,
         response_model: type[ResponseT],
+        stage: str = "llm",
+        num_predict: int | None = None,
     ) -> ResponseT:
         """지정한 Pydantic 모델로 검증된 결과를 반환합니다."""
         raise NotImplementedError
+
+    @property
+    def metrics(self) -> list[dict[str, Any]]:
+        """내용을 포함하지 않는 호출 성능 메타데이터."""
+        return []
 
     @abstractmethod
     async def aclose(self) -> None:

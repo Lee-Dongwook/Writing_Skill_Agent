@@ -14,12 +14,16 @@ async def generate_for_agent(
     system_prompt: str,
     user_prompt: str,
     response_model: type[ResponseT],
+    stage: str = "llm",
+    num_predict: int | None = None,
 ) -> ResponseT:
     try:
         return await client.generate(
             system_prompt=system_prompt,
             user_prompt=user_prompt,
             response_model=response_model,
+            stage=stage,
+            num_predict=num_predict,
         )
 
     except LLMCallError as exc:

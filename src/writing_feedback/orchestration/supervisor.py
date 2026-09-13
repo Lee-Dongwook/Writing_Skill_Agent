@@ -1,4 +1,5 @@
 import asyncio
+import time
 from collections.abc import Awaitable, Callable, Mapping
 from typing import Any
 
@@ -10,16 +11,19 @@ from writing_feedback.orchestration.state import (
     WorkflowError,
     WorkflowState,
     WorkflowStatus,
+    WorkflowMode,
     utc_now,
 )
 from writing_feedback.schemas.analysis import PassageAnalysis
 from writing_feedback.schemas.evaluation import SummaryEvaluation
 from writing_feedback.schemas.feedback import FeedbackDraft
+from writing_feedback.schemas.fast_feedback import FastFeedbackDraft
 from writing_feedback.orchestration.validation import (
     EvidenceValidationError,
     validate_evaluation,
     validate_feedback,
     validate_passage_analysis,
+    validate_fast_feedback,
 )
 
 
@@ -48,12 +52,14 @@ class Supervisor:
         handlers: Mapping[AgentName, AgentHandler],
         *,
         timeout_seconds: float = 60.0,
+        total_timeout_seconds: float | None = None,
     ) -> None:
         if timeout_seconds <= 0:
             raise ValueError("호출 제한 시간은 0보다 커야 합니다.")
 
         self.handlers = dict(handlers)
         self.timeout_seconds = timeout_seconds
+        self.total_timeout_seconds = total_timeout_seconds or timeout_seconds
 
     @staticmethod
     def select_next_agent(
@@ -66,6 +72,9 @@ class Supervisor:
             WorkflowStatus.FAILED,
         }:
             return None
+
+        if state.mode == WorkflowMode.FAST:
+            return None if state.fast_feedback is not None else AgentName.FAST
 
         if state.evaluation is not None and state.passage_analysis is None:
             raise ValueError("지문 분석 없이 평가 결과가 존재합니다.")
@@ -92,6 +101,7 @@ class Supervisor:
         # 호출자가 전달한 초기 상태는 그대로 보존합니다.
         state = state.model_copy(deep=True)
         state.status = WorkflowStatus.RUNNING
+        started = time.perf_counter()
         state.updated_at = utc_now()
 
         while True:
@@ -114,6 +124,11 @@ class Supervisor:
                 )
                 return state
 
+            remaining = self.total_timeout_seconds - (time.perf_counter() - started)
+            if remaining <= 0:
+                self._record_error(state, agent=agent, code=ErrorCode.TIME_BUDGET_EXCEEDED, retryable=False)
+                return state
+
             # 재시도를 포함해 실제 호출 직전에 증가시킵니다.
             state.step_count += 1
             state.updated_at = utc_now()
@@ -122,7 +137,7 @@ class Supervisor:
                 # Agent에는 복사본을 전달해 공유 상태 직접 변경을 막습니다.
                 output = await asyncio.wait_for(
                     self.handlers[agent](state.model_copy(deep=True)),
-                    timeout=self.timeout_seconds,
+                    timeout=min(self.timeout_seconds, remaining),
                 )
 
                 self._store_output(state, agent, output)
@@ -192,13 +207,15 @@ class Supervisor:
             or state.passage_analysis is not None
             or state.evaluation is not None
             or state.feedback is not None
+            or state.fast_feedback is not None
         ):
             raise ValueError("이전 실행 이력이 없는 새 상태가 필요합니다.")
 
         if state.rubric is None:
             raise ValueError("실행 전에 평가 기준을 설정해야 합니다.")
 
-        missing = set(AgentName) - set(self.handlers)
+        required = {AgentName.FAST} if state.mode == WorkflowMode.FAST else {AgentName.PASSAGE, AgentName.EVALUATION, AgentName.FEEDBACK}
+        missing = required - set(self.handlers)
 
         if missing:
             names = ", ".join(sorted(agent.value for agent in missing))
@@ -254,6 +271,11 @@ class Supervisor:
 
             state.feedback = result
 
+        elif agent == AgentName.FAST:
+            result = FastFeedbackDraft.model_validate(payload)
+            validate_fast_feedback(state.request, result)
+            state.fast_feedback = result
+
         else:
             raise ValueError(f"지원하지 않는 Agent입니다: {agent}")
 
@@ -271,6 +293,8 @@ class Supervisor:
             ErrorCode.EVIDENCE_MISMATCH: "출력의 근거 또는 참조가 일치하지 않습니다.",
             ErrorCode.STEP_LIMIT_EXCEEDED: "전체 호출 횟수 제한을 초과했습니다.",
             ErrorCode.INTERNAL_ERROR: "내부 실행 오류가 발생했습니다.",
+            ErrorCode.TIME_BUDGET_EXCEEDED: "전체 실행 시간 예산을 초과했습니다.",
+            ErrorCode.INPUT_BUDGET_EXCEEDED: "입력이 빠른 경로의 토큰 예산을 초과했습니다.",
         }
 
         state.errors.append(

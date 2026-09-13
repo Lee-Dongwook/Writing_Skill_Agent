@@ -7,6 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from writing_feedback.schemas.analysis import PassageAnalysis
 from writing_feedback.schemas.evaluation import SummaryEvaluation
 from writing_feedback.schemas.feedback import FeedbackDraft
+from writing_feedback.schemas.fast_feedback import FastFeedbackDraft
 from writing_feedback.schemas.request import FeedbackRequest
 
 
@@ -25,6 +26,7 @@ class StateModel(BaseModel):
 
 
 class AgentName(str, Enum):
+    FAST = "fast"
     PASSAGE = "passage"
     EVALUATION = "evaluation"
     FEEDBACK = "feedback"
@@ -43,6 +45,13 @@ class ErrorCode(str, Enum):
     EVIDENCE_MISMATCH = "evidence_mismatch"
     STEP_LIMIT_EXCEEDED = "step_limit_exceeded"
     INTERNAL_ERROR = "internal_error"
+    TIME_BUDGET_EXCEEDED = "time_budget_exceeded"
+    INPUT_BUDGET_EXCEEDED = "input_budget_exceeded"
+
+
+class WorkflowMode(str, Enum):
+    DETAILED = "detailed"
+    FAST = "fast"
 
 
 class WorkflowError(StateModel):
@@ -130,6 +139,9 @@ class WorkflowState(StateModel):
     passage_analysis: PassageAnalysis | None = None
     evaluation: SummaryEvaluation | None = None
     feedback: FeedbackDraft | None = None
+    fast_feedback: FastFeedbackDraft | None = None
+    mode: WorkflowMode = WorkflowMode.DETAILED
+    performance: dict = Field(default_factory=dict, description="내용을 제외한 실행 성능 메타데이터")
 
     status: WorkflowStatus = WorkflowStatus.PENDING
     next_agent: AgentName | None = None

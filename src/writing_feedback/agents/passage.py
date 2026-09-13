@@ -61,6 +61,7 @@ class PassageAgent:
                     ensure_ascii=False,
                 ),
                 response_model=PassageAnalysis,
+                stage="passage",
             )
 
         except LLMCallError as exc:

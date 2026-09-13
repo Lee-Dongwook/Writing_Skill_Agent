@@ -1,6 +1,7 @@
 import argparse
 import asyncio
 import json
+import time
 from pathlib import Path
 
 from pydantic import ValidationError
@@ -14,6 +15,7 @@ from writing_feedback.agents.mock import (
 from writing_feedback.agents.passage import PassageAgent
 from writing_feedback.agents.evaluation import EvaluationAgent
 from writing_feedback.agents.feedback import FeedbackAgent
+from writing_feedback.agents.fast_feedback import FastFeedbackAgent
 from writing_feedback.config import Settings
 from writing_feedback.llm.base import LLMError
 from writing_feedback.llm.client import OllamaClient
@@ -21,6 +23,7 @@ from writing_feedback.orchestration.state import (
     AgentName,
     WorkflowState,
     WorkflowStatus,
+    WorkflowMode,
 )
 from writing_feedback.orchestration.supervisor import (
     AgentExecutionError,
@@ -36,6 +39,22 @@ from writing_feedback.rubrics.loader import (
 )
 from writing_feedback.schemas.analysis import PassageAnalysis
 from writing_feedback.schemas.request import FeedbackRequest
+
+
+def build_performance(started: float, state: WorkflowState, calls: list[dict]) -> dict:
+    """호출 본문 없이 CLI 결과에 포함할 실행·단계별 집계."""
+    stages: dict[str, dict] = {}
+    for call in calls:
+        item = stages.setdefault(call["stage"], {"call_count": 0, "elapsed_seconds": 0.0})
+        item["call_count"] += 1
+        item["elapsed_seconds"] = round(item["elapsed_seconds"] + call["elapsed_seconds"], 3)
+    return {
+        "total_seconds": round(time.perf_counter() - started, 3),
+        "stage_summary": stages,
+        "calls": calls,
+        "status": state.status.value,
+        "error_codes": [error.code.value for error in state.errors],
+    }
 
 
 async def run_passage_only(
@@ -63,6 +82,7 @@ async def run_local_workflow(
     settings: Settings,
 ) -> WorkflowState:
     client = OllamaClient(settings)
+    started = time.perf_counter()
 
     try:
         supervisor = Supervisor(
@@ -71,11 +91,29 @@ async def run_local_workflow(
                 AgentName.EVALUATION: EvaluationAgent(client),
                 AgentName.FEEDBACK: FeedbackAgent(client),
             },
-            timeout_seconds=settings.llm_timeout_seconds + 15.0,
+            timeout_seconds=settings.llm_timeout_seconds,
+            total_timeout_seconds=settings.workflow_timeout_seconds,
         )
 
-        return await supervisor.run(state)
+        result = await supervisor.run(state)
+        result.performance = build_performance(started, result, client.metrics)
+        return result
 
+    finally:
+        await client.aclose()
+
+async def run_fast_workflow(state: WorkflowState, settings: Settings) -> WorkflowState:
+    client = OllamaClient(settings)
+    started = time.perf_counter()
+    try:
+        supervisor = Supervisor(
+            handlers={AgentName.FAST: FastFeedbackAgent(client, input_token_budget=settings.fast_input_token_budget, num_predict=settings.fast_num_predict)},
+            timeout_seconds=settings.llm_timeout_seconds,
+            total_timeout_seconds=settings.workflow_timeout_seconds,
+        )
+        result = await supervisor.run(state)
+        result.performance = build_performance(started, result, client.metrics)
+        return result
     finally:
         await client.aclose()
 
@@ -104,7 +142,12 @@ def main() -> None:
     mode.add_argument(
         "--local",
         action="store_true",
-        help="로컬 LLM으로 지문 분석·평가·첨삭 전체 실행",
+        help="로컬 LLM 빠른 단일 호출 첨삭 실행(기본 권장)",
+    )
+    mode.add_argument(
+        "--detailed",
+        action="store_true",
+        help="로컬 LLM 3단계 상세 분석·평가·첨삭 실행",
     )
 
     args = parser.parse_args()
@@ -173,14 +216,15 @@ def main() -> None:
     except ValidationError:
         parser.error(".env 또는 환경 변수의 설정값을 확인하세요.")
 
-    if args.local:
+    if args.local or args.detailed:
+        state.mode = WorkflowMode.FAST if args.local else WorkflowMode.DETAILED
         print(
-            f"[LOCAL] {settings.ollama_model}로 전체 첨삭 실행 중...",
+            f"[LOCAL] {settings.ollama_model}로 {'빠른 단일 호출' if args.local else '상세 3단계'} 첨삭 실행 중...",
             flush=True,
         )
 
         result = asyncio.run(
-            run_local_workflow(state, settings)
+            run_fast_workflow(state, settings) if args.local else run_local_workflow(state, settings)
         )
 
         if result.status == WorkflowStatus.FAILED:

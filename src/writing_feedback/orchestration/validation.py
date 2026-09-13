@@ -6,6 +6,7 @@ from writing_feedback.schemas.analysis import (
 )
 from writing_feedback.schemas.evaluation import SummaryEvaluation
 from writing_feedback.schemas.feedback import FeedbackDraft
+from writing_feedback.schemas.fast_feedback import FastFeedbackDraft
 from writing_feedback.schemas.request import FeedbackRequest
 
 
@@ -149,3 +150,12 @@ def validate_feedback(
         raise EvidenceValidationError(
             "첨삭 대상 문제 목록이 평가 결과와 일치하지 않습니다."
         )
+
+
+def validate_fast_feedback(request: FeedbackRequest, feedback: FastFeedbackDraft) -> None:
+    paragraphs = split_passage(request.passage)
+    for issue in feedback.issues:
+        for evidence in issue.source_evidence:
+            validate_source_evidence(evidence, paragraphs)
+        for evidence in issue.student_evidence:
+            validate_student_quote(evidence.quote, request.student_text)
