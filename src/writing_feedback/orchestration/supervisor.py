@@ -15,6 +15,12 @@ from writing_feedback.orchestration.state import (
 from writing_feedback.schemas.analysis import PassageAnalysis
 from writing_feedback.schemas.evaluation import SummaryEvaluation
 from writing_feedback.schemas.feedback import FeedbackDraft
+from writing_feedback.orchestration.validation import (
+    EvidenceValidationError,
+    validate_evaluation,
+    validate_feedback,
+    validate_passage_analysis,
+)
 
 
 # Agent는 상태를 입력받고, 구조화된 결과를 반환합니다.
@@ -136,6 +142,14 @@ class Supervisor:
                     code=exc.code,
                     retryable=exc.retryable,
                 )
+                
+            except EvidenceValidationError:
+                self._record_error(
+                    state,
+                    agent=agent,
+                    code=ErrorCode.EVIDENCE_MISMATCH,
+                    retryable=True,
+                )
 
             except ValidationError:
                 self._record_error(
@@ -205,14 +219,39 @@ class Supervisor:
 
         if agent == AgentName.PASSAGE:
             result = PassageAnalysis.model_validate(payload)
+            validate_passage_analysis(
+                state.request,
+                result,
+            )
+
             state.passage_analysis = result
 
         elif agent == AgentName.EVALUATION:
+            if state.passage_analysis is None:
+                raise AgentExecutionError(
+                    ErrorCode.INTERNAL_ERROR,
+                    retryable=False,
+                )
             result = SummaryEvaluation.model_validate(payload)
+            validate_evaluation(
+                state.request,
+                state.passage_analysis,
+                result,
+            )
             state.evaluation = result
 
         elif agent == AgentName.FEEDBACK:
+            if state.evaluation is None:
+                raise AgentExecutionError(
+                    ErrorCode.INTERNAL_ERROR,
+                    retryable=False,
+                )
             result = FeedbackDraft.model_validate(payload)
+            validate_feedback(
+                state.evaluation,
+                result,
+            )
+
             state.feedback = result
 
         else:
