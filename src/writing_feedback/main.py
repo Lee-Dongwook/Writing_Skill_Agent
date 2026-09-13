@@ -6,6 +6,7 @@ from pydantic import ValidationError
 
 from writing_feedback.schemas.request import FeedbackRequest
 from writing_feedback.orchestration.state import WorkflowState
+from writing_feedback.orchestration.supervisor import Supervisor
 
 
 def main() -> None:
@@ -51,8 +52,13 @@ def main() -> None:
     print(request.model_dump_json(indent=2))
 
     state = WorkflowState(request=request)
+    next_agent = Supervisor.select_next_agent(state)
 
     print("첨삭 실행 상태 생성 완료")
+    print(
+        "다음 실행 대상:",
+        next_agent.value if next_agent is not None else "없음",
+    )
     print(state.model_dump_json(indent=2))
 
 
