@@ -33,11 +33,15 @@ const labels: Record<string, string> = {
   expression: "표현",
 };
 const errorLabels: Record<string, string> = {
-  model_call_failed: "Ollama 모델 호출에 실패했습니다.",
+  model_call_failed: "모델 호출에 실패했습니다.",
+  llm_not_configured:
+    "외부 모델 API 키가 없거나 유효하지 않습니다. 서버의 GROQ_API_KEY 설정을 확인하세요.",
+  llm_rate_limited:
+    "외부 모델 API 사용량 한도에 도달했습니다. 잠시 후 다시 실행하세요.",
   ollama_connection_failed:
     "Ollama 서버에 연결할 수 없습니다. ollama serve와 API 실행 위치를 확인하세요.",
   model_not_installed:
-    "요청한 Ollama 모델이 없습니다. ollama pull qwen3:4b를 실행하거나 모델 설정을 확인하세요.",
+    "요청한 모델을 찾을 수 없습니다. 모델 설정(로컬은 ollama pull, 배포는 WRITING_GROQ_MODEL)을 확인하세요.",
   invalid_output: "모델 출력이 잘렸거나 형식 검증에 실패했습니다.",
   evidence_mismatch: "원문·학생 글 근거 검증에 실패했습니다.",
   input_budget_exceeded:
@@ -166,11 +170,13 @@ function App() {
   const [form, setForm] = useState(initial),
     [fieldErrors, setFieldErrors] = useState<Record<string, string>>({}),
     [run, setRun] = useState<Run | null>(null),
-    [requestError, setRequestError] = useState<string | null>(null);
+    [requestError, setRequestError] = useState<string | null>(null),
+    [submitting, setSubmitting] = useState(false);
   const activeRun = useRef<string | null>(null),
     abort = useRef<AbortController | null>(null),
     timer = useRef<number | null>(null);
-  const running = run?.status === "pending" || run?.status === "running";
+  const running =
+    submitting || run?.status === "pending" || run?.status === "running";
   const clearPolling = () => {
     if (timer.current) window.clearTimeout(timer.current);
     abort.current?.abort();
@@ -211,12 +217,17 @@ function App() {
     clearPolling();
     setRequestError(null);
     setRun(null);
+    setSubmitting(true);
     try {
       const created = await createRun({
         ...form,
         teacher_guidance: form.teacher_guidance?.trim() || undefined,
       });
       activeRun.current = created.run_id;
+      if ("result" in created) {
+        setRun(created);
+        return;
+      }
       setRun({
         run_id: created.run_id,
         status: "pending",
@@ -230,6 +241,8 @@ function App() {
       if (apiError.field)
         setFieldErrors({ [apiError.field]: apiError.message });
       setRequestError(apiError.message);
+    } finally {
+      setSubmitting(false);
     }
   };
   const statusText =
@@ -237,7 +250,9 @@ function App() {
       ? "대기열에서 실행을 기다리고 있어요."
       : run?.status === "running"
         ? `${run.stage === "fast" ? "빠른 첨삭" : run.stage === "passage" ? "지문 분석" : run.stage === "evaluation" ? "요약 평가" : run.stage === "feedback" ? "첨삭 초안" : "첨삭"}을 실행 중이에요.`
-        : "";
+        : submitting
+          ? "첨삭을 실행 중이에요."
+          : "";
   return (
     <main className="min-h-screen bg-[#f7f7f2] px-5 py-5 text-[#263128] sm:px-8 lg:px-12">
       <nav className="mx-auto flex max-w-7xl items-center justify-between py-3">
@@ -248,7 +263,7 @@ function App() {
           <span>문장선</span>
         </a>
         <span className="rounded-full border border-[#cdd3c8] px-4 py-2 text-sm">
-          로컬 교사용 도구
+          교사용 도구
         </span>
       </nav>
       <section

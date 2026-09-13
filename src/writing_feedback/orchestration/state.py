@@ -49,6 +49,8 @@ class ErrorCode(str, Enum):
     INPUT_BUDGET_EXCEEDED = "input_budget_exceeded"
     OLLAMA_CONNECTION_FAILED = "ollama_connection_failed"
     MODEL_NOT_INSTALLED = "model_not_installed"
+    LLM_NOT_CONFIGURED = "llm_not_configured"
+    LLM_RATE_LIMITED = "llm_rate_limited"
 
 
 class WorkflowMode(str, Enum):

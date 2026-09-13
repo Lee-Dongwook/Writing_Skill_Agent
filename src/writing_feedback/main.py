@@ -14,7 +14,7 @@ from writing_feedback.agents.mock import (
 from writing_feedback.agents.passage import PassageAgent
 from writing_feedback.config import Settings
 from writing_feedback.llm.base import LLMError
-from writing_feedback.llm.client import OllamaClient
+from writing_feedback.llm.factory import create_llm_client
 from writing_feedback.orchestration.state import WorkflowState, WorkflowStatus, WorkflowMode
 from writing_feedback.orchestration.supervisor import (
     AgentExecutionError,
@@ -37,7 +37,7 @@ async def run_passage_only(
     state: WorkflowState,
     settings: Settings,
 ) -> PassageAnalysis:
-    client = OllamaClient(settings)
+    client = create_llm_client(settings)
 
     try:
         agent = PassageAgent(client)
@@ -155,7 +155,7 @@ def main() -> None:
     if args.local or args.detailed:
         state.mode = WorkflowMode.FAST if args.local else WorkflowMode.DETAILED
         print(
-            f"[LOCAL] {settings.ollama_model}로 {'빠른 단일 호출' if args.local else '상세 3단계'} 첨삭 실행 중...",
+            f"[{settings.llm_provider.upper()}] {settings.model_name}로 {'빠른 단일 호출' if args.local else '상세 3단계'} 첨삭 실행 중...",
             flush=True,
         )
 
@@ -174,7 +174,7 @@ def main() -> None:
         return
 
     print(
-        f"[LOCAL] {settings.ollama_model}로 지문 분석 중...",
+        f"[{settings.llm_provider.upper()}] {settings.model_name}로 지문 분석 중...",
         flush=True,
     )
 

@@ -8,7 +8,7 @@ from writing_feedback.agents.fast_feedback import FastFeedbackAgent
 from writing_feedback.agents.feedback import FeedbackAgent
 from writing_feedback.agents.passage import PassageAgent
 from writing_feedback.config import Settings
-from writing_feedback.llm.client import OllamaClient
+from writing_feedback.llm.factory import create_llm_client
 from writing_feedback.orchestration.state import AgentName, WorkflowState
 from writing_feedback.orchestration.supervisor import Supervisor
 
@@ -36,7 +36,7 @@ async def run_workflow(
     on_state_change: Callable[[WorkflowState], None] | None = None,
 ) -> WorkflowState:
     """요청의 mode에 따라 빠른 또는 상세 Agent를 실행한다."""
-    client = OllamaClient(settings)
+    client = create_llm_client(settings)
     started = time.perf_counter()
     try:
         if state.mode.value == "fast":

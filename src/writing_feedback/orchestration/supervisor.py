@@ -310,6 +310,10 @@ class Supervisor:
             ErrorCode.INTERNAL_ERROR: "내부 실행 오류가 발생했습니다.",
             ErrorCode.TIME_BUDGET_EXCEEDED: "전체 실행 시간 예산을 초과했습니다.",
             ErrorCode.INPUT_BUDGET_EXCEEDED: "입력이 빠른 경로의 토큰 예산을 초과했습니다.",
+            ErrorCode.OLLAMA_CONNECTION_FAILED: "로컬 Ollama 서버와 통신할 수 없습니다.",
+            ErrorCode.MODEL_NOT_INSTALLED: "요청한 모델을 찾을 수 없습니다.",
+            ErrorCode.LLM_NOT_CONFIGURED: "외부 모델 API 키가 없거나 유효하지 않습니다.",
+            ErrorCode.LLM_RATE_LIMITED: "외부 모델 API 사용량 한도에 도달했습니다.",
         }
 
         state.errors.append(

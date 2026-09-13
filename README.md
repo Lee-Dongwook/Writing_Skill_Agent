@@ -1,6 +1,6 @@
 # 국어 비문학 첨삭 에이전트
 
-교사가 검토할 요약문 첨삭 초안을 만드는 로컬 Ollama 도구입니다. 결과는 자동 승인·채점 결과가 아니며 반드시 교사가 검토해야 합니다.
+교사가 검토할 요약문 첨삭 초안을 만드는 도구입니다. 로컬 개발은 Ollama, 배포(Vercel)는 외부 Groq API를 사용합니다. 결과는 자동 승인·채점 결과가 아니며 반드시 교사가 검토해야 합니다.
 
 ## 실행 모드
 
@@ -98,6 +98,34 @@ PYTHONPATH=src python examples/benchmark.py --compare --all-cases
 ```bash
 PYTHONPATH=src python -m unittest discover -s tests -v
 ```
+
+## Vercel 배포 (Groq API)
+
+배포 환경에서는 Mac이 꺼져 있어도 동작하도록 Ollama 대신 Groq API를 호출합니다. 같은 Agent·프롬프트·평가 기준·근거 검증을 그대로 사용하고, LLM 클라이언트만 바뀝니다.
+
+- 프론트: `pnpm build`로 만든 `dist/`를 정적 호스팅합니다. 배포 빌드는 같은 도메인의 `/api`를 호출합니다.
+- API: `api/index.py`가 기존 FastAPI 앱을 Vercel Python 함수로 노출합니다(`vercel.json`의 `/api/*` rewrite).
+- 서버리스는 응답 후 백그라운드 작업과 메모리 저장소를 보장하지 않으므로, 배포에서는 `POST /api/runs`가 첨삭을 끝낸 뒤 완료/실패 결과를 `200`으로 바로 반환합니다(`WRITING_API_INLINE_RUNS=true`). 로컬 API의 `202` + 폴링 방식은 그대로입니다.
+- 함수 최대 실행 시간은 60초이며, 모델 호출 50초·전체 55초 예산을 적용합니다.
+
+### 설정 순서
+
+1. [Groq Console](https://console.groq.com/)에서 API 키를 발급합니다.
+2. GitHub 저장소를 Vercel 프로젝트로 가져옵니다(Framework: Vite, 설정은 `vercel.json`이 지정).
+3. Vercel **Settings → Environment Variables**에 `GROQ_API_KEY`를 등록한 뒤 다시 배포합니다.
+4. `https://<배포 주소>/api/health`가 `{"provider": "groq", ...}`를 반환하는지 확인합니다.
+
+선택 환경 변수:
+
+| 변수 | 기본값 | 설명 |
+| --- | --- | --- |
+| `WRITING_GROQ_MODEL` | `openai/gpt-oss-20b` | `openai/gpt-oss-*`는 JSON 스키마 강제 출력, 그 외 모델(예: `llama-3.1-8b-instant`)은 JSON 모드 + 프롬프트 내 스키마로 요청 |
+| `WRITING_GROQ_REASONING_EFFORT` | `low` | gpt-oss 추론 강도(`low`/`medium`/`high`) |
+| `WRITING_GROQ_REASONING_TOKEN_ALLOWANCE` | `1024` | gpt-oss 추론 토큰을 위해 단계별 출력 상한에 더하는 값 |
+
+로컬에서 Groq로 실행해 보려면 `.env`에 `WRITING_LLM_PROVIDER=groq`와 `GROQ_API_KEY`를 넣고 기존 CLI/API를 그대로 실행합니다.
+
+**주의:** 배포에서는 학생 글과 원문이 Groq API로 전송됩니다. 또한 배포 URL을 아는 누구나 API를 호출해 Groq 사용량을 소모할 수 있으므로, 필요하면 Vercel Deployment Protection 등으로 접근을 제한하세요.
 
 ## 제한 사항
 

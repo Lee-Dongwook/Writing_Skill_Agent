@@ -45,6 +45,16 @@ class ApiTest(unittest.TestCase):
         self.assertEqual(body["result"]["fast_feedback"]["issues"], [])
         self.assertNotIn("request", body)
 
+    def test_inline_mode_returns_completed_run_in_post_response(self):
+        app = create_app(Settings(api_inline_runs=True, api_cors_origins=""))
+        with patch("writing_feedback.api.run_workflow", fake_run), TestClient(app) as client:
+            response = client.post("/api/runs", json=PAYLOAD)
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(body["status"], "awaiting_teacher_review")
+        self.assertEqual(body["result"]["fast_feedback"]["student_feedback"], "핵심 내용을 잘 담았어요.")
+        self.assertNotIn("request", body)
+
     def test_invalid_grade_is_rejected_before_run_creation(self):
         invalid = {**PAYLOAD, "school_level": "middle", "grade": 4}
         with TestClient(self.app) as client:

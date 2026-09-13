@@ -6,7 +6,7 @@ from contextlib import asynccontextmanager
 from datetime import datetime
 from typing import Literal
 
-from fastapi import FastAPI, HTTPException, Request, status
+from fastapi import FastAPI, HTTPException, Request, Response, status
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
@@ -88,19 +88,24 @@ class RunStore:
                 record.state = state
 
             try:
-                result = await run_workflow(record.state, self.settings, on_state_change=update)
-                record.state = result
-            except Exception:
-                # 프롬프트·학생 글·예외 원문을 로그나 응답에 넣지 않는다.
-                record.state.status = WorkflowStatus.FAILED
-                record.state.errors.append(WorkflowError(
-                    agent=None, code=ErrorCode.INTERNAL_ERROR,
-                    message="서버가 첨삭 작업을 완료하지 못했습니다.", retryable=False,
-                    step=record.state.step_count,
-                ))
-                record.state.updated_at = utc_now()
+                record.state = await execute_safely(record.state, self.settings, on_state_change=update)
             finally:
                 record.completed_at = time.monotonic()
+
+
+async def execute_safely(state: WorkflowState, settings: Settings, *, on_state_change=None) -> WorkflowState:
+    try:
+        return await run_workflow(state, settings, on_state_change=on_state_change)
+    except Exception:
+        # 프롬프트·학생 글·예외 원문을 로그나 응답에 넣지 않는다.
+        state.status = WorkflowStatus.FAILED
+        state.errors.append(WorkflowError(
+            agent=None, code=ErrorCode.INTERNAL_ERROR,
+            message="서버가 첨삭 작업을 완료하지 못했습니다.", retryable=False,
+            step=state.step_count,
+        ))
+        state.updated_at = utc_now()
+        return state
 
 
 class QueueFullError(Exception):
@@ -141,15 +146,19 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.get("/api/health")
     async def health() -> dict:
-        return {"status": "ok", "model": settings.ollama_model}
+        return {"status": "ok", "provider": settings.llm_provider, "model": settings.model_name}
 
-    @app.post("/api/runs", response_model=RunCreated, status_code=status.HTTP_202_ACCEPTED)
-    async def create_run(payload: RunCreateRequest, request: Request) -> RunCreated:
+    @app.post("/api/runs", response_model=RunCreated | RunView, status_code=status.HTTP_202_ACCEPTED)
+    async def create_run(payload: RunCreateRequest, request: Request, response: Response) -> RunCreated | RunView:
         try:
             rubric = load_rubric(payload)
         except RubricLoadError as exc:
             raise HTTPException(status_code=503, detail={"code": "rubric_configuration_error", "message": "평가 기준 설정을 확인하세요."}) from exc
         state = WorkflowState(request=FeedbackRequest.model_validate(payload.model_dump(exclude={"mode"})), rubric=rubric, mode=payload.mode, max_retries=0)
+        if settings.api_inline_runs:
+            # 서버리스 배포: 요청 안에서 끝낸 완료/실패 상태를 200으로 바로 반환한다.
+            response.status_code = status.HTTP_200_OK
+            return public_view(await execute_safely(state, settings))
         try:
             record = store.create(state)
         except QueueFullError:

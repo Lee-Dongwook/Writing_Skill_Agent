@@ -1,11 +1,8 @@
 import json
 from importlib.resources import files
 
-from writing_feedback.llm.base import (
-    LLMCallError,
-    LLMClient,
-    LLMOutputError,
-)
+from writing_feedback.agents.common import generate_for_agent
+from writing_feedback.llm.base import LLMClient
 from writing_feedback.orchestration.state import (
     ErrorCode,
     WorkflowState,
@@ -53,25 +50,13 @@ class PassageAgent:
             ],
         }
 
-        try:
-            return await self.client.generate(
-                system_prompt=self.system_prompt,
-                user_prompt=json.dumps(
-                    payload,
-                    ensure_ascii=False,
-                ),
-                response_model=PassageAnalysis,
-                stage="passage",
-            )
-
-        except LLMCallError as exc:
-            raise AgentExecutionError(
-                ErrorCode.MODEL_CALL_FAILED,
-                retryable=exc.retryable,
-            ) from exc
-
-        except LLMOutputError as exc:
-            raise AgentExecutionError(
-                ErrorCode.INVALID_OUTPUT,
-                retryable=exc.retryable,
-            ) from exc
+        return await generate_for_agent(
+            self.client,
+            system_prompt=self.system_prompt,
+            user_prompt=json.dumps(
+                payload,
+                ensure_ascii=False,
+            ),
+            response_model=PassageAnalysis,
+            stage="passage",
+        )

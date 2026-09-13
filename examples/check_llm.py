@@ -4,7 +4,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from writing_feedback.config import Settings
 from writing_feedback.llm.base import LLMError
-from writing_feedback.llm.client import OllamaClient
+from writing_feedback.llm.factory import create_llm_client
 
 
 class SummaryResult(BaseModel):
@@ -21,7 +21,7 @@ class SummaryResult(BaseModel):
 
 async def check_llm() -> None:
     settings = Settings()
-    client = OllamaClient(settings)
+    client = create_llm_client(settings)
 
     try:
         result = await client.generate(

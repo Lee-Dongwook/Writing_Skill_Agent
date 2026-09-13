@@ -52,8 +52,10 @@ export type Run = {
   errors: { code: string; message: string }[];
   result: RunResult | null;
 };
+// 배포 빌드는 같은 도메인의 /api(Vercel 함수)를 호출한다.
 const baseUrl = (
-  import.meta.env.VITE_WRITING_API_BASE_URL ?? "http://127.0.0.1:8000"
+  import.meta.env.VITE_WRITING_API_BASE_URL ??
+  (import.meta.env.DEV ? "http://127.0.0.1:8000" : "")
 ).replace(/\/$/, "");
 export class ApiError extends Error {
   constructor(
@@ -92,8 +94,9 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   }
   return response.json() as Promise<T>;
 }
+// 로컬 API는 run_id만 반환하고, 서버리스 API는 완료된 Run을 바로 반환한다.
 export const createRun = (payload: FormPayload) =>
-  request<{ run_id: string }>("/api/runs", {
+  request<{ run_id: string; status: "pending" } | Run>("/api/runs", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
