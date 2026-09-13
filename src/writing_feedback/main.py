@@ -1,11 +1,24 @@
 import argparse
+import asyncio
 import json
 from pathlib import Path
 
 from pydantic import ValidationError
 
+from writing_feedback.agents.mock import (
+    build_mock_rubric,
+    ensure_demo_request,
+    mock_evaluation,
+    mock_feedback,
+    mock_passage,
+)
+
 from writing_feedback.schemas.request import FeedbackRequest
-from writing_feedback.orchestration.state import WorkflowState
+from writing_feedback.orchestration.state import (
+    AgentName,
+    WorkflowState,
+    WorkflowStatus,
+)
 from writing_feedback.orchestration.supervisor import Supervisor
 
 
@@ -19,7 +32,16 @@ def main() -> None:
         required=True,
         help="첨삭 요청 JSON 파일 경로",
     )
+    parser.add_argument(
+        "--mock",
+        action="store_true",
+        help="기본 예제 전용 고정 데이터로 실행",
+    )
     args = parser.parse_args()
+
+    if not args.mock:
+        parser.error("현재 단계에서는 --mock 실행만 지원합니다.")
+
 
     try:
         payload = json.loads(
@@ -47,19 +69,31 @@ def main() -> None:
             + "\n".join(messages)
         )
 
-    # 다음 단계: 검증된 요청을 Supervisor에 전달
-    print("입력값 검증 완료")
-    print(request.model_dump_json(indent=2))
+    try:
+        ensure_demo_request(request)
+    except ValueError as exc:
+        parser.error(str(exc))
 
-    state = WorkflowState(request=request)
-    next_agent = Supervisor.select_next_agent(state)
-
-    print("첨삭 실행 상태 생성 완료")
-    print(
-        "다음 실행 대상:",
-        next_agent.value if next_agent is not None else "없음",
+    state = WorkflowState(
+        request=request,
+        rubric=build_mock_rubric(request),
     )
-    print(state.model_dump_json(indent=2))
+
+    supervisor = Supervisor(
+        handlers={
+            AgentName.PASSAGE: mock_passage,
+            AgentName.EVALUATION: mock_evaluation,
+            AgentName.FEEDBACK: mock_feedback,
+        }
+    )
+
+    result = asyncio.run(supervisor.run(state))
+
+    print("[MOCK] 실행 확인용 고정 결과입니다.")
+    print(result.model_dump_json(indent=2))
+
+    if result.status == WorkflowStatus.FAILED:
+        raise SystemExit(1)
 
 
 if __name__ == "__main__":
