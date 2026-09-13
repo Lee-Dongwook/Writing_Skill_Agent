@@ -12,6 +12,8 @@ from writing_feedback.agents.mock import (
     mock_passage,
 )
 from writing_feedback.agents.passage import PassageAgent
+from writing_feedback.agents.evaluation import EvaluationAgent
+from writing_feedback.agents.feedback import FeedbackAgent
 from writing_feedback.config import Settings
 from writing_feedback.llm.base import LLMError
 from writing_feedback.llm.client import OllamaClient
@@ -56,6 +58,26 @@ async def run_passage_only(
     finally:
         await client.aclose()
 
+async def run_local_workflow(
+    state: WorkflowState,
+    settings: Settings,
+) -> WorkflowState:
+    client = OllamaClient(settings)
+
+    try:
+        supervisor = Supervisor(
+            handlers={
+                AgentName.PASSAGE: PassageAgent(client),
+                AgentName.EVALUATION: EvaluationAgent(client),
+                AgentName.FEEDBACK: FeedbackAgent(client),
+            },
+            timeout_seconds=settings.llm_timeout_seconds + 15.0,
+        )
+
+        return await supervisor.run(state)
+
+    finally:
+        await client.aclose()
 
 def main() -> None:
     parser = argparse.ArgumentParser(
@@ -78,6 +100,11 @@ def main() -> None:
         "--passage-only",
         action="store_true",
         help="로컬 LLM으로 지문 분석과 근거 검증 실행",
+    )
+    mode.add_argument(
+        "--local",
+        action="store_true",
+        help="로컬 LLM으로 지문 분석·평가·첨삭 전체 실행",
     )
 
     args = parser.parse_args()
@@ -144,6 +171,28 @@ def main() -> None:
         settings = Settings()
     except ValidationError:
         parser.error(".env 또는 환경 변수의 설정값을 확인하세요.")
+
+    if args.local:
+        print(
+            f"[LOCAL] {settings.ollama_model}로 전체 첨삭 실행 중...",
+            flush=True,
+        )
+
+        result = asyncio.run(
+            run_local_workflow(state, settings)
+        )
+
+        if result.status == WorkflowStatus.FAILED:
+            print("첨삭 실행이 실패했습니다.")
+        else:
+            print("첨삭 초안 생성 완료 — 교사 검토 대기")
+
+        print(result.model_dump_json(indent=2))
+
+        if result.status == WorkflowStatus.FAILED:
+            raise SystemExit(1)
+
+        return
 
     print(
         f"[LOCAL] {settings.ollama_model}로 지문 분석 중...",
