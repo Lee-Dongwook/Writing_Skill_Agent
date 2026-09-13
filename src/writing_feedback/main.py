@@ -141,6 +141,7 @@ def main() -> None:
     state = WorkflowState(
         request=request,
         rubric=rubric,
+        max_retries=0,
     )
 
     if args.mock:
