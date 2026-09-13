@@ -15,9 +15,11 @@ class LLMError(Exception):
         message: str,
         *,
         retryable: bool,
+        error_code: str | None = None,
     ) -> None:
         super().__init__(message)
         self.retryable = retryable
+        self.error_code = error_code
 
 
 class LLMCallError(LLMError):

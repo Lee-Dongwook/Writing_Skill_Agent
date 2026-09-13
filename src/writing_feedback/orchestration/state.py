@@ -47,6 +47,8 @@ class ErrorCode(str, Enum):
     INTERNAL_ERROR = "internal_error"
     TIME_BUDGET_EXCEEDED = "time_budget_exceeded"
     INPUT_BUDGET_EXCEEDED = "input_budget_exceeded"
+    OLLAMA_CONNECTION_FAILED = "ollama_connection_failed"
+    MODEL_NOT_INSTALLED = "model_not_installed"
 
 
 class WorkflowMode(str, Enum):

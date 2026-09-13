@@ -54,6 +54,14 @@ class Settings(BaseSettings):
     fast_num_predict: int = Field(default=512, ge=64)
     fast_input_token_budget: int = Field(default=3000, ge=256)
     workflow_timeout_seconds: float = Field(default=120.0, gt=0)
+    api_max_concurrent_runs: int = Field(default=1, ge=1, le=1)
+    api_queue_limit: int = Field(default=8, ge=1, le=100)
+    api_result_ttl_seconds: int = Field(default=3600, ge=60)
+    api_cors_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
+
+    @property
+    def api_cors_origins_list(self) -> list[str]:
+        return [origin.strip() for origin in self.api_cors_origins.split(",") if origin.strip()]
 
     @model_validator(mode="after")
     def validate_token_limits(self) -> Self:

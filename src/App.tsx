@@ -1,72 +1,429 @@
-import { ArrowUpRight, Check, ChevronRight, FileText, MessageCircle, PenLine, Sparkles } from 'lucide-react'
+import { useEffect, useRef, useState } from "react";
+import {
+  AlertCircle,
+  Check,
+  ChevronRight,
+  FileText,
+  LoaderCircle,
+  PenLine,
+  RefreshCw,
+  Sparkles,
+} from "lucide-react";
+import {
+  ApiError,
+  createRun,
+  getRun,
+  type FormPayload,
+  type Issue,
+  type Run,
+  type RunResult,
+} from "./api";
 
-const feedbacks = [
-  { label: '핵심 내용', score: 92, note: '주장이 선명하게 드러나요.', color: 'bg-[#d9e7b9]' },
-  { label: '문장 표현', score: 78, note: '한 문장을 조금 더 덜어내 볼까요?', color: 'bg-[#f4d7ba]' },
-  { label: '구성 흐름', score: 86, note: '문단 사이 연결이 자연스러워요.', color: 'bg-[#b9dce1]' },
-]
+const levels = [
+  { value: "elementary", label: "초등" },
+  { value: "middle", label: "중등" },
+  { value: "high", label: "고등" },
+] as const;
+const labels: Record<string, string> = {
+  omission: "핵심 내용 누락",
+  distortion: "의미 왜곡",
+  unsupported_claim: "원문 밖 주장",
+  unnecessary_detail: "불필요한 세부 내용",
+  organization: "구성",
+  expression: "표현",
+};
+const errorLabels: Record<string, string> = {
+  model_call_failed: "Ollama 모델 호출에 실패했습니다.",
+  ollama_connection_failed:
+    "Ollama 서버에 연결할 수 없습니다. ollama serve와 API 실행 위치를 확인하세요.",
+  model_not_installed:
+    "요청한 Ollama 모델이 없습니다. ollama pull qwen3:4b를 실행하거나 모델 설정을 확인하세요.",
+  invalid_output: "모델 출력이 잘렸거나 형식 검증에 실패했습니다.",
+  evidence_mismatch: "원문·학생 글 근거 검증에 실패했습니다.",
+  input_budget_exceeded:
+    "입력이 빠른 첨삭의 길이 제한을 넘었습니다. 상세 모드를 사용하거나 글을 나누세요.",
+  time_budget_exceeded: "전체 실행 시간이 제한을 넘었습니다.",
+  run_not_found:
+    "서버 재시작 또는 결과 보존 시간 만료로 실행을 찾을 수 없습니다.",
+  queue_full: "로컬 첨삭 대기열이 가득 찼습니다.",
+};
+const initial: FormPayload = {
+  school_level: "elementary",
+  grade: 5,
+  task_type: "summary",
+  instruction: "지문의 핵심 내용을 두 문장으로 요약하세요.",
+  passage: "",
+  student_text: "",
+  teacher_guidance: "",
+  mode: "fast",
+};
+const maxGrade = (level: FormPayload["school_level"]) =>
+  level === "elementary" ? 6 : 3;
 
-function App() {
+function ResultView({ result }: { result: RunResult }) {
+  const fast = result.fast_feedback;
+  const detail = result.feedback;
+  const comments = new Map(
+    (detail?.comments ?? []).map((item) => [item.issue_id, item]),
+  );
+  const summary =
+    fast?.passage_summary ??
+    detail?.teacher_summary ??
+    result.evaluation?.overall_assessment ??
+    result.passage_analysis?.central_idea;
+  const issues: Issue[] = fast?.issues ?? result.evaluation?.issues ?? [];
   return (
-    <main className="min-h-screen overflow-hidden bg-[#f7f7f2] px-5 py-5 text-[#263128] sm:px-8 lg:px-12">
-      <nav className="mx-auto flex max-w-7xl items-center justify-between py-3">
-        <a className="flex items-center gap-2 font-semibold tracking-tight" href="#top">
-          <span className="grid h-9 w-9 place-items-center rounded-full bg-[#263128] text-lg text-[#f7f7f2]">ㅁ</span>
-          <span>문장선</span>
-        </a>
-        <div className="hidden items-center gap-7 text-sm text-[#667069] md:flex">
-          <a href="#writing" className="text-[#263128]">내 글</a>
-          <a href="#feedback">피드백</a>
-          <a href="#library">글감 서랍</a>
+    <section className="mt-7 rounded-2xl border border-[#d9e7b9] bg-[#fbfdf7] p-5">
+      <p className="flex items-center gap-2 text-sm font-semibold text-[#718449]">
+        <Check size={16} /> 교사 검토용 첨삭 초안
+      </p>
+      {summary && (
+        <>
+          <p className="mt-4 text-xs font-semibold text-[#7c857d]">
+            핵심 요약 · 총평
+          </p>
+          <p className="mt-1 text-sm leading-6 text-[#425044]">{summary}</p>
+        </>
+      )}
+      {detail?.student_summary && (
+        <p className="mt-3 rounded-xl bg-white p-3 text-sm leading-6 text-[#4f5b51]">
+          학생용 전체 피드백: {detail.student_summary}
+        </p>
+      )}
+      {issues.length === 0 ? (
+        <p className="mt-5 rounded-xl bg-white p-4 text-sm leading-6 text-[#4f5b51]">
+          검증된 첨삭 문제는 없습니다. 이는 결과 로딩 실패가 아닌 정상 결과이며,
+          교사가 원문과 학생 글을 최종 검토하세요.
+        </p>
+      ) : (
+        <div className="mt-5 space-y-4">
+          {issues.map((issue, index) => {
+            const comment = issue.issue_id
+              ? comments.get(issue.issue_id)
+              : undefined;
+            return (
+              <article
+                key={issue.issue_id ?? `${issue.category}-${index}`}
+                className="rounded-xl border border-[#e2e8dc] bg-white p-4 text-sm leading-6"
+              >
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="rounded-full bg-[#f4d7ba] px-2 py-0.5 text-xs font-semibold">
+                    {labels[issue.category] ?? issue.category}
+                  </span>
+                  {issue.severity && (
+                    <span className="text-xs text-[#7c857d]">
+                      중요도:{" "}
+                      {issue.severity === "high"
+                        ? "높음"
+                        : issue.severity === "medium"
+                          ? "보통"
+                          : "낮음"}
+                    </span>
+                  )}
+                </div>
+                <p className="mt-2 font-medium">{issue.diagnosis}</p>
+                {issue.reasoning && (
+                  <p className="text-[#667069]">{issue.reasoning}</p>
+                )}
+                {issue.student_evidence.length > 0 && (
+                  <p className="mt-2 text-[#667069]">
+                    학생 글 구절:{" "}
+                    <q>
+                      {issue.student_evidence.map((e) => e.quote).join(" · ")}
+                    </q>
+                  </p>
+                )}
+                {issue.source_evidence.length > 0 && (
+                  <p className="text-[#667069]">
+                    원문 근거:{" "}
+                    {issue.source_evidence.map((e) => (
+                      <span key={`${e.paragraph_id}-${e.quote}`}>
+                        <q>{e.quote}</q> (문단 {e.paragraph_id}){" "}
+                      </span>
+                    ))}
+                  </p>
+                )}
+                {comment && (
+                  <div className="mt-3 border-t border-[#edf0ea] pt-3 text-[#4f5b51]">
+                    <p>교사용: {comment.teacher_note}</p>
+                    <p>학생용: {comment.student_feedback}</p>
+                    <p>수정 질문: {comment.revision_question}</p>
+                    {comment.revision_example && (
+                      <p>부분 수정 예시: {comment.revision_example}</p>
+                    )}
+                  </div>
+                )}
+              </article>
+            );
+          })}
         </div>
-        <button className="rounded-full border border-[#cdd3c8] px-4 py-2 text-sm font-medium transition hover:bg-white">로그인</button>
-      </nav>
-
-      <section id="top" className="mx-auto grid max-w-7xl gap-10 pb-16 pt-16 lg:grid-cols-[1fr_1.08fr] lg:items-center lg:py-24">
-        <div className="relative">
-          <p className="mb-6 flex items-center gap-2 text-sm font-semibold text-[#74834d]"><Sparkles size={16} /> 매일 한 문장, 더 나다운 글로</p>
-          <h1 className="max-w-xl text-5xl font-semibold leading-[1.08] tracking-[-0.06em] sm:text-6xl lg:text-7xl">
-            쓰는 시간은<br />
-            <span className="relative z-10">나를 선명하게</span> 만든다.
-          </h1>
-          <div className="absolute left-7 top-[9.5rem] -z-0 h-5 w-72 -rotate-1 bg-[#d9e7b9] sm:top-[11.5rem] sm:w-80" />
-          <p className="mt-8 max-w-md text-base leading-7 text-[#667069]">생각을 글로 옮기는 순간부터, 문장선이 곁에서 함께해요. 내 문체는 지키고 표현은 더 또렷하게 다듬어 드립니다.</p>
-          <div className="mt-9 flex flex-wrap gap-3">
-            <button className="flex items-center gap-2 rounded-full bg-[#263128] px-5 py-3 text-sm font-semibold text-white transition hover:bg-[#455447]">글쓰기 시작하기 <ArrowUpRight size={16} /></button>
-            <button className="rounded-full px-5 py-3 text-sm font-semibold underline underline-offset-4">어떻게 쓰나요?</button>
-          </div>
-          <div className="mt-12 flex items-center gap-4 text-sm text-[#667069]">
-            <div className="flex -space-x-2"><span className="h-8 w-8 rounded-full border-2 border-[#f7f7f2] bg-[#d2a68a]" /><span className="h-8 w-8 rounded-full border-2 border-[#f7f7f2] bg-[#9fb9a4]" /><span className="h-8 w-8 rounded-full border-2 border-[#f7f7f2] bg-[#8b9bb5]" /></div>
-            <span><strong className="font-semibold text-[#263128]">1,240명</strong>의 쓰는 사람이 함께해요</span>
-          </div>
-        </div>
-
-        <div id="writing" className="relative mx-auto w-full max-w-xl rounded-[2rem] border border-[#dce0d7] bg-white p-4 shadow-[0_18px_50px_-28px_rgba(38,49,40,.38)] sm:p-6">
-          <div className="mb-5 flex items-center justify-between border-b border-[#edf0ea] pb-4">
-            <div className="flex items-center gap-3"><span className="grid h-10 w-10 place-items-center rounded-xl bg-[#f5efe3] text-[#b8794d]"><PenLine size={19} /></span><div><p className="text-sm font-semibold">오늘의 생각</p><p className="text-xs text-[#929991]">자동 저장됨 · 방금 전</p></div></div>
-            <span className="rounded-full bg-[#eaf2d7] px-3 py-1 text-xs font-semibold text-[#718449]">초안</span>
-          </div>
-          <p className="text-xs font-medium uppercase tracking-[.16em] text-[#929991]">2025. 04. 18 · 금요일</p>
-          <h2 className="mt-3 text-2xl font-semibold tracking-tight">창문 너머의 계절</h2>
-          <div className="mt-5 border-l-2 border-[#d9e7b9] pl-4 text-[15px] leading-8 text-[#4f5b51]">
-            봄은 늘 조용히 찾아온다. 어제까지 비어 있던 가지 끝에 연둣빛이 맺히고, 나는 그 작은 변화를 한참 바라본다. 바쁜 하루 속에서도 계절은 제 속도로 흘러간다는 사실이 조금은 위로가 된다.
-          </div>
-          <div className="mt-7 rounded-2xl bg-[#f5f7f0] p-4">
-            <div className="flex items-center justify-between"><p className="flex items-center gap-2 text-sm font-semibold"><MessageCircle size={16} className="text-[#718449]" /> 문장선의 첫 피드백</p><span className="text-xs text-[#718449]">읽는 중...</span></div>
-            <p className="mt-3 text-sm leading-6 text-[#667069]">‘조용히 찾아온다’는 표현이 글 전체의 차분한 분위기를 잘 열어줘요. 다음 문장에서 <mark className="rounded bg-[#f7dfbd] px-1 text-inherit">‘작은 변화’</mark>를 구체적인 장면으로 보여주면 독자가 더 가까이 느낄 수 있어요.</p>
-          </div>
-          <button className="mt-5 flex w-full items-center justify-center gap-2 rounded-xl bg-[#263128] py-3 text-sm font-semibold text-white">피드백 완성하기 <ChevronRight size={16} /></button>
-        </div>
-      </section>
-
-      <section id="feedback" className="mx-auto max-w-7xl border-t border-[#dce0d7] py-16">
-        <div className="mb-9 flex flex-wrap items-end justify-between gap-4"><div><p className="text-sm font-semibold text-[#74834d]">WRITE WITH CLARITY</p><h2 className="mt-2 text-3xl font-semibold tracking-tight sm:text-4xl">막막한 글쓰기를, 작은 확신으로.</h2></div><a className="flex items-center gap-1 text-sm font-semibold underline underline-offset-4" href="#library">피드백 살펴보기 <ArrowUpRight size={15} /></a></div>
-        <div className="grid gap-4 md:grid-cols-3">{feedbacks.map((item) => <article key={item.label} className="rounded-3xl border border-[#dce0d7] bg-white p-6"><div className={`mb-7 flex h-11 w-11 items-center justify-center rounded-2xl ${item.color}`}><Check size={20} /></div><p className="text-sm text-[#667069]">{item.label}</p><p className="mt-2 text-4xl font-semibold tracking-tight">{item.score}<span className="text-lg">점</span></p><p className="mt-5 text-sm leading-6 text-[#667069]">{item.note}</p></article>)}</div>
-      </section>
-
-      <footer id="library" className="mx-auto flex max-w-7xl items-center justify-between border-t border-[#dce0d7] py-8 text-sm text-[#7c857d]"><span>© 2025 Munjangseon</span><span className="flex items-center gap-2"><FileText size={14} /> 당신의 문장을 응원합니다</span></footer>
-    </main>
-  )
+      )}
+    </section>
+  );
 }
 
-export default App
+function App() {
+  const [form, setForm] = useState(initial),
+    [fieldErrors, setFieldErrors] = useState<Record<string, string>>({}),
+    [run, setRun] = useState<Run | null>(null),
+    [requestError, setRequestError] = useState<string | null>(null);
+  const activeRun = useRef<string | null>(null),
+    abort = useRef<AbortController | null>(null),
+    timer = useRef<number | null>(null);
+  const running = run?.status === "pending" || run?.status === "running";
+  const clearPolling = () => {
+    if (timer.current) window.clearTimeout(timer.current);
+    abort.current?.abort();
+    timer.current = null;
+    abort.current = null;
+  };
+  useEffect(() => () => clearPolling(), []);
+  const update = <K extends keyof FormPayload>(key: K, value: FormPayload[K]) =>
+    setForm((old) => ({ ...old, [key]: value }));
+  const validate = () => {
+    const errors: Record<string, string> = {};
+    for (const key of ["instruction", "passage", "student_text"] as const)
+      if (!form[key].trim()) errors[key] = "필수 입력 항목입니다.";
+    if (form.grade > maxGrade(form.school_level))
+      errors.grade = "학교급에 맞는 학년을 선택하세요.";
+    setFieldErrors(errors);
+    return Object.keys(errors).length === 0;
+  };
+  const poll = async (runId: string) => {
+    try {
+      abort.current = new AbortController();
+      const next = await getRun(runId, abort.current.signal);
+      if (activeRun.current !== runId) return;
+      setRun(next);
+      if (next.status === "pending" || next.status === "running")
+        timer.current = window.setTimeout(() => poll(runId), 1200);
+    } catch (error) {
+      if ((error as Error).name !== "AbortError" && activeRun.current === runId)
+        setRequestError(
+          error instanceof ApiError
+            ? error.message
+            : "상태를 조회하지 못했습니다. 첨삭 작업 자체의 실패 여부는 다시 조회해 확인하세요.",
+        );
+    }
+  };
+  const submit = async () => {
+    if (running || !validate()) return;
+    clearPolling();
+    setRequestError(null);
+    setRun(null);
+    try {
+      const created = await createRun({
+        ...form,
+        teacher_guidance: form.teacher_guidance?.trim() || undefined,
+      });
+      activeRun.current = created.run_id;
+      setRun({
+        run_id: created.run_id,
+        status: "pending",
+        stage: null,
+        errors: [],
+        result: null,
+      });
+      void poll(created.run_id);
+    } catch (error) {
+      const apiError = error as ApiError;
+      if (apiError.field)
+        setFieldErrors({ [apiError.field]: apiError.message });
+      setRequestError(apiError.message);
+    }
+  };
+  const statusText =
+    run?.status === "pending"
+      ? "대기열에서 실행을 기다리고 있어요."
+      : run?.status === "running"
+        ? `${run.stage === "fast" ? "빠른 첨삭" : run.stage === "passage" ? "지문 분석" : run.stage === "evaluation" ? "요약 평가" : run.stage === "feedback" ? "첨삭 초안" : "첨삭"}을 실행 중이에요.`
+        : "";
+  return (
+    <main className="min-h-screen bg-[#f7f7f2] px-5 py-5 text-[#263128] sm:px-8 lg:px-12">
+      <nav className="mx-auto flex max-w-7xl items-center justify-between py-3">
+        <a className="flex items-center gap-2 font-semibold" href="#top">
+          <span className="grid h-9 w-9 place-items-center rounded-full bg-[#263128] text-lg text-[#f7f7f2]">
+            ㅁ
+          </span>
+          <span>문장선</span>
+        </a>
+        <span className="rounded-full border border-[#cdd3c8] px-4 py-2 text-sm">
+          로컬 교사용 도구
+        </span>
+      </nav>
+      <section
+        id="top"
+        className="mx-auto grid max-w-7xl gap-10 pb-12 pt-12 lg:grid-cols-[.8fr_1.2fr] lg:items-start"
+      >
+        <div>
+          <p className="mb-6 flex items-center gap-2 text-sm font-semibold text-[#74834d]">
+            <Sparkles size={16} /> 국어 비문학 요약문 첨삭
+          </p>
+          <h1 className="text-5xl font-semibold leading-[1.08] tracking-[-.06em] sm:text-6xl">
+            글의 뜻을
+            <br />
+            <span>더 또렷하게</span> 본다.
+          </h1>
+          <p className="mt-8 max-w-md leading-7 text-[#667069]">
+            원문 근거를 바탕으로 만든 초안을 교사가 검토합니다. 자동 채점·승인
+            기능은 제공하지 않습니다.
+          </p>
+        </div>
+        <section
+          id="writing"
+          className="w-full rounded-[2rem] border border-[#dce0d7] bg-white p-5 shadow-[0_18px_50px_-28px_rgba(38,49,40,.38)] sm:p-6"
+        >
+          <div className="mb-5 flex items-center gap-3 border-b border-[#edf0ea] pb-4">
+            <span className="grid h-10 w-10 place-items-center rounded-xl bg-[#f5efe3] text-[#b8794d]">
+              <PenLine size={19} />
+            </span>
+            <div>
+              <p className="text-sm font-semibold">비문학 첨삭 요청</p>
+              <p className="text-xs text-[#929991]">
+                입력 내용은 실패해도 이 화면에 남습니다.
+              </p>
+            </div>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-3">
+            <label className="text-sm">
+              학교급
+              <select
+                value={form.school_level}
+                onChange={(e) => {
+                  const school_level = e.target
+                    .value as FormPayload["school_level"];
+                  setForm((old) => ({
+                    ...old,
+                    school_level,
+                    grade: Math.min(old.grade, maxGrade(school_level)),
+                  }));
+                }}
+                className="mt-1 w-full rounded-xl border border-[#dce0d7] p-2"
+              >
+                {levels.map((l) => (
+                  <option key={l.value} value={l.value}>
+                    {l.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="text-sm">
+              학년
+              <select
+                value={form.grade}
+                onChange={(e) => update("grade", Number(e.target.value))}
+                className="mt-1 w-full rounded-xl border border-[#dce0d7] p-2"
+              >
+                {Array.from(
+                  { length: maxGrade(form.school_level) },
+                  (_, i) => i + 1,
+                ).map((grade) => (
+                  <option key={grade}>{grade}</option>
+                ))}
+              </select>
+              {fieldErrors.grade && (
+                <small className="text-red-700">{fieldErrors.grade}</small>
+              )}
+            </label>
+            <label className="text-sm">
+              실행 모드
+              <select
+                value={form.mode}
+                onChange={(e) =>
+                  update("mode", e.target.value as FormPayload["mode"])
+                }
+                disabled={running}
+                className="mt-1 w-full rounded-xl border border-[#dce0d7] p-2"
+              >
+                <option value="fast">빠른 첨삭 (권장)</option>
+                <option value="detailed">상세 분석 (느림)</option>
+              </select>
+            </label>
+          </div>
+          {(
+            [
+              [
+                "instruction",
+                "과제 지시문",
+                "예: 지문의 핵심 내용을 두 문장으로 요약하세요.",
+              ],
+              [
+                "passage",
+                "원문 지문",
+                "학생이 읽은 비문학 지문을 붙여 넣으세요.",
+              ],
+              ["student_text", "학생 글", "첨삭할 학생의 요약문을 입력하세요."],
+            ] as const
+          ).map(([key, label, placeholder]) => (
+            <label key={key} className="mt-4 block text-sm font-medium">
+              {label}
+              <textarea
+                value={form[key]}
+                onChange={(e) => update(key, e.target.value)}
+                disabled={running}
+                placeholder={placeholder}
+                className="mt-1 min-h-24 w-full resize-y rounded-xl border border-[#dce0d7] p-3 font-normal leading-6 outline-none focus:border-[#718449]"
+              />
+              {fieldErrors[key] && (
+                <small className="text-red-700">{fieldErrors[key]}</small>
+              )}
+            </label>
+          ))}
+          <label className="mt-4 block text-sm font-medium">
+            교사 지도 방향{" "}
+            <span className="font-normal text-[#7c857d]">(선택)</span>
+            <textarea
+              value={form.teacher_guidance}
+              onChange={(e) => update("teacher_guidance", e.target.value)}
+              disabled={running}
+              className="mt-1 min-h-16 w-full resize-y rounded-xl border border-[#dce0d7] p-3 font-normal"
+            />
+          </label>
+          {requestError && (
+            <p className="mt-4 flex gap-2 rounded-xl bg-[#fff0ed] p-3 text-sm text-[#9b3f2d]">
+              <AlertCircle size={18} />
+              {requestError}
+            </p>
+          )}
+          {running && (
+            <p className="mt-4 flex items-center gap-2 rounded-xl bg-[#f5f7f0] p-3 text-sm text-[#667069]">
+              <LoaderCircle size={16} className="animate-spin" />
+              {statusText} 진행률과 남은 시간은 추정하지 않습니다.
+            </p>
+          )}
+          {run?.status === "failed" && (
+            <div className="mt-4 rounded-xl bg-[#fff0ed] p-3 text-sm text-[#9b3f2d]">
+              <p className="font-semibold">첨삭 실행에 실패했습니다.</p>
+              {run.errors.map((error, i) => (
+                <p key={i}>{errorLabels[error.code] ?? error.message}</p>
+              ))}
+            </div>
+          )}
+          <button
+            onClick={() => void submit()}
+            disabled={running}
+            className="mt-5 flex w-full items-center justify-center gap-2 rounded-xl bg-[#263128] py-3 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {run?.status === "failed" ? (
+              <>
+                <RefreshCw size={16} /> 같은 입력으로 다시 실행
+              </>
+            ) : (
+              <>
+                첨삭 실행하기 <ChevronRight size={16} />
+              </>
+            )}
+          </button>
+          {run?.result && <ResultView result={run.result} />}
+        </section>
+      </section>
+      <footer className="mx-auto flex max-w-7xl items-center justify-between border-t border-[#dce0d7] py-8 text-sm text-[#7c857d]">
+        <span>© 2026 Munjangseon</span>
+        <span className="flex items-center gap-2">
+          <FileText size={14} /> 교사 검토용 초안
+        </span>
+      </footer>
+    </main>
+  );
+}
+export default App;

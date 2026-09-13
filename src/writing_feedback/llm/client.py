@@ -34,10 +34,14 @@ class OllamaClient(LLMClient):
                 raise LLMCallError("로컬 모델 호출 시간이 초과되었습니다.", retryable=True) from None
             except httpx.HTTPStatusError as exc:
                 error_kind = "http_error"
-                raise LLMCallError(f"Ollama가 HTTP {exc.response.status_code} 오류를 반환했습니다.", retryable=exc.response.status_code in {408, 429, 500, 502, 503, 504}) from None
+                raise LLMCallError(
+                    f"Ollama가 HTTP {exc.response.status_code} 오류를 반환했습니다.",
+                    retryable=exc.response.status_code in {408, 429, 500, 502, 503, 504},
+                    error_code="model_not_installed" if exc.response.status_code == 404 else None,
+                ) from None
             except httpx.RequestError:
                 error_kind = "connection_error"
-                raise LLMCallError("로컬 Ollama 서버와 통신할 수 없습니다.", retryable=True) from None
+                raise LLMCallError("로컬 Ollama 서버와 통신할 수 없습니다.", retryable=True, error_code="ollama_connection_failed") from None
             try:
                 body = response.json()
             except ValueError:

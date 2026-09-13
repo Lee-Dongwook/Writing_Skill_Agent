@@ -28,7 +28,7 @@ async def generate_for_agent(
 
     except LLMCallError as exc:
         raise AgentExecutionError(
-            ErrorCode.MODEL_CALL_FAILED,
+            ErrorCode(exc.error_code) if exc.error_code else ErrorCode.MODEL_CALL_FAILED,
             retryable=exc.retryable,
         ) from exc
 

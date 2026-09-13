@@ -22,10 +22,13 @@ setup(
         "typing-extensions>=4.4,<5.0",
         "PyYAML>=6.0,<7.0",
         "httpx>=0.27,<1.0",
+        "fastapi>=0.115,<1.0",
+        "uvicorn>=0.30,<1.0",
     ],
     entry_points={
         "console_scripts": [
             "writing-feedback=writing_feedback.main:main",
+            "writing-feedback-api=writing_feedback.api:run",
         ],
     },
 )

@@ -53,6 +53,7 @@ class Supervisor:
         *,
         timeout_seconds: float = 60.0,
         total_timeout_seconds: float | None = None,
+        on_state_change: Callable[[WorkflowState], None] | None = None,
     ) -> None:
         if timeout_seconds <= 0:
             raise ValueError("호출 제한 시간은 0보다 커야 합니다.")
@@ -60,6 +61,11 @@ class Supervisor:
         self.handlers = dict(handlers)
         self.timeout_seconds = timeout_seconds
         self.total_timeout_seconds = total_timeout_seconds or timeout_seconds
+        self.on_state_change = on_state_change
+
+    def _notify(self, state: WorkflowState) -> None:
+        if self.on_state_change is not None:
+            self.on_state_change(state.model_copy(deep=True))
 
     @staticmethod
     def select_next_agent(
@@ -103,16 +109,19 @@ class Supervisor:
         state.status = WorkflowStatus.RUNNING
         started = time.perf_counter()
         state.updated_at = utc_now()
+        self._notify(state)
 
         while True:
             agent = self.select_next_agent(state)
             state.next_agent = agent
             state.updated_at = utc_now()
+            self._notify(state)
 
             # 마지막 허용 호출에서 성공한 경우도 정상 종료합니다.
             if agent is None:
                 state.status = WorkflowStatus.AWAITING_TEACHER_REVIEW
                 state.updated_at = utc_now()
+                self._notify(state)
                 return state
 
             if state.step_count >= state.max_steps:
@@ -122,16 +131,19 @@ class Supervisor:
                     code=ErrorCode.STEP_LIMIT_EXCEEDED,
                     retryable=False,
                 )
+                self._notify(state)
                 return state
 
             remaining = self.total_timeout_seconds - (time.perf_counter() - started)
             if remaining <= 0:
                 self._record_error(state, agent=agent, code=ErrorCode.TIME_BUDGET_EXCEEDED, retryable=False)
+                self._notify(state)
                 return state
 
             # 재시도를 포함해 실제 호출 직전에 증가시킵니다.
             state.step_count += 1
             state.updated_at = utc_now()
+            self._notify(state)
 
             try:
                 # Agent에는 복사본을 전달해 공유 상태 직접 변경을 막습니다.
@@ -187,13 +199,16 @@ class Supervisor:
             else:
                 state.retry_count = 0
                 state.updated_at = utc_now()
+                self._notify(state)
                 continue
 
             if state.status == WorkflowStatus.FAILED:
+                self._notify(state)
                 return state
 
             # 다음 루프에서 실제 재시도를 시작합니다.
             state.retry_count += 1
+            self._notify(state)
 
     def _validate_start(self, state: WorkflowState) -> None:
         if state.status != WorkflowStatus.PENDING:
