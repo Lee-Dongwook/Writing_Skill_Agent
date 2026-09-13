@@ -19,6 +19,7 @@ setup(
     install_requires=[
         "pydantic>=2.0,<3.0",
         "typing-extensions>=4.4,<5.0",
+        "PyYAML>=6.0,<7.0",
     ],
     entry_points={
         "console_scripts": [

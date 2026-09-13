@@ -6,11 +6,14 @@ from pathlib import Path
 from pydantic import ValidationError
 
 from writing_feedback.agents.mock import (
-    build_mock_rubric,
     ensure_demo_request,
     mock_evaluation,
     mock_feedback,
     mock_passage,
+)
+from writing_feedback.rubrics.loader import (
+    RubricLoadError,
+    load_rubric,
 )
 
 from writing_feedback.schemas.request import FeedbackRequest
@@ -74,9 +77,14 @@ def main() -> None:
     except ValueError as exc:
         parser.error(str(exc))
 
+    try:
+        rubric = load_rubric(request)
+    except RubricLoadError as exc:
+        parser.error(str(exc))
+
     state = WorkflowState(
         request=request,
-        rubric=build_mock_rubric(request),
+        rubric=rubric,
     )
 
     supervisor = Supervisor(

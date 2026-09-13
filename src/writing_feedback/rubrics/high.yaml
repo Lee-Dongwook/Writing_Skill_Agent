@@ -1,0 +1,31 @@
+rubric_id: summary-high
+version: "0.1.0"
+school_level: high
+task_type: summary
+
+criteria:
+  - criterion_id: meaning_accuracy
+    description: 글의 논지와 개념 간 관계를 정확하게 이해했는지 평가합니다.
+    expectation: 주장의 적용 범위, 조건, 예외와 한계가 요약 과정에서 바뀌었는지 확인합니다.
+
+  - criterion_id: key_content
+    description: 글의 논지를 이해하는 데 필수적인 내용을 선별했는지 평가합니다.
+    expectation: 중심 논지와 주요 근거를 과제 분량에 맞게 담았는지 확인하고, 세부 정보의 나열을 구분합니다.
+
+  - criterion_id: organization
+    description: 정보의 위계와 논리 관계를 유지하며 재구성했는지 평가합니다.
+    expectation: 핵심 개념과 근거의 연결을 확인하고, 의미를 유지한 독자적인 구성을 인정합니다.
+
+  - criterion_id: expression
+    description: 압축된 문장에서도 개념과 판단의 범위가 명확한지 평가합니다.
+    expectation: 모호한 개념 사용이나 지나친 압축으로 인한 의미 변화를 확인하고, 표현 차이 자체는 감점하지 않습니다.
+
+grade_expectations:
+  1: 설명과 주장을 구분하고 핵심 개념 사이의 관계를 유지하는 수준을 적용합니다.
+  2: 복수의 관점이나 설명을 통합하면서 각 관점의 조건과 차이를 유지하는 수준을 적용합니다.
+  3: 추상적인 개념과 복합적인 논증을 압축하되 논지의 범위와 한계를 보존하는 수준을 적용합니다.
+
+feedback_guidance: >-
+  어떤 표현이 논지나 적용 범위를 바꾸었는지 구체적으로 설명합니다.
+  정답 문장과의 표현 유사도로 판단하지 않습니다.
+  요청에 포함된 학년에 맞춰 개념과 논리 관계를 점검하는 질문을 제시합니다.

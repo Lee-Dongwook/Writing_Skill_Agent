@@ -1,0 +1,31 @@
+rubric_id: summary-middle
+version: "0.1.0"
+school_level: middle
+task_type: summary
+
+criteria:
+  - criterion_id: meaning_accuracy
+    description: 핵심 개념과 설명의 관계를 정확히 이해했는지 평가합니다.
+    expectation: 인과관계의 역전, 조건 누락에 따른 의미 변화, 과도한 일반화를 확인합니다.
+
+  - criterion_id: key_content
+    description: 중심 내용과 이를 이해하는 데 필요한 정보를 담았는지 평가합니다.
+    expectation: 지시문과 요약 분량을 고려하여 필수 내용과 생략 가능한 예시를 구분합니다.
+
+  - criterion_id: organization
+    description: 핵심 내용을 논리적으로 재구성했는지 평가합니다.
+    expectation: 내용 간 연결과 중복을 확인하고, 원문의 문단 순서를 따르지 않아도 의미가 정확하면 인정합니다.
+
+  - criterion_id: expression
+    description: 개념과 문장 관계를 분명하게 표현했는지 평가합니다.
+    expectation: 모호한 지시어와 부적절한 연결 표현을 확인하고, 정확한 바꿔쓰기를 인정합니다.
+
+grade_expectations:
+  1: 문단의 중심 내용을 구분하고 기본적인 인과·대조 관계를 유지하는 수준을 적용합니다.
+  2: 개념의 정의와 예시를 구분하고 여러 문단의 핵심 내용을 통합하는 수준을 적용합니다.
+  3: 글 전체의 설명 구조를 파악하고 중요한 조건과 한계를 유지하며 압축하는 수준을 적용합니다.
+
+feedback_guidance: >-
+  학생이 쓴 구절과 원문의 관계를 구체적으로 설명합니다.
+  필요한 개념은 짧게 풀어 설명하고, 스스로 비교하거나 고칠 수 있는 질문을 제시합니다.
+  요청에 포함된 학년에 맞춰 설명의 깊이를 조절합니다.
